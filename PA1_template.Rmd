@@ -5,21 +5,97 @@ output:
     keep_md: true
 ---
 
+<style>
+ th,td{
+   padding:2px 5px 2px 5px;
+ }
+</style>
+
+## Import libraries
+```{r libraries, echo=TRUE, message=FALSE}
+require(dtplyr)
+require(ggplot2)
+require(xtable)
+```
 
 ## Loading and preprocessing the data
+We create data tables grouped by date and by time interval for use later
+```{r load, echo=TRUE}
+if (!file.exists('activity.csv')) {
+  unzip('activity.zip')
+}
 
+activity <- tbl_dt(read.csv('activity.csv', stringsAsFactors=FALSE))
+by_date <- activity[, list(total=sum(steps, na.rm=TRUE), 
+                           mean=mean(steps, na.rm=TRUE), 
+                           median=median(steps, na.rm=TRUE)), 
+                    by=date]
+by_interval <- activity[, list(mean=mean(steps, na.rm=TRUE)), by=interval]
+```
 
+## Histogram of total steps per day
+```{r histo, echo=TRUE, results='asis'}
+g <- ggplot() + geom_bar(aes(x=as.Date(date, '%Y-%m-%d'), y=total),
+                         data=by_date, stat='identity') + 
+                labs(x = "Date", y = "Total Steps")
 
-## What is mean total number of steps taken per day?
+print(g, type='html')
+```
 
-
+## What are the mean and median number of steps taken per day?
+Median for all days is zero, as zero steps are taken during most intervals
+```{r meanmed, echo=TRUE, results='asis'}
+print(xtable(by_date[, list(date, mean, median)]), type='html', include.rownames=FALSE)
+```
 
 ## What is the average daily activity pattern?
+Average steps is plotted against daily interval number
 
+Interval minute range can be calculated by (interval number)*5
+```{r inter, echo=TRUE, results='asis'}
+g <- ggplot(by_interval, aes(x=seq_along(mean), y=mean)) +
+                geom_line() +
+                labs(x='5 minute interval of day', y='Mean steps taken')
 
+print(g, type='html')
+```
+
+Which 5-minute interval, on average across all the days in the dataset, contains the maximum number of steps?
+```{r maxinterval, echo=TRUE, comment=NA}
+print(by_interval[order(-mean)]$interval[1])
+```
 
 ## Imputing missing values
+First let's see how many NA's we're working with
+```{r nas, echo=TRUE, comment=NA}
+print(sum(is.na(activity$steps)))
+```
+The assignment asks for a dataset euqal to the original with the missing data imputed,
+but here, I don't believe it to be the best option.
 
+If the missing data was sparse, a linear interpolation between missing points would be a way of
+imputing the data. However, it seems that all the NA values appear on days that consist entirely of NA values.
+In my opinion, there is no honest way of imputing how many steps would be taken on a day with no data whatsoever.
 
+Here, I think the best option is to remove the missing days from the dataset entirely.
+```{r na_days, echo=TRUE}
+na_days <- by_date$date[is.na(by_date$mean)]
+new_activity <- tbl_dt(subset(activity, !(date %in% na_days)))
+new_activity$date <- as.Date(new_activity$date, format='%Y-%m-%d')
+```
 
 ## Are there differences in activity patterns between weekdays and weekends?
+First, let's create a new column indicating whether the date of measurement is a weekday or weekend.
+```{r weekday, echo=TRUE}
+new_activity$day <- 
+  as.factor(sapply(weekdays(new_activity$date),
+         function(x) ifelse(x=='Saturday'|x=='Sunday', 'Weekend', 'Weekday')))
+```
+Now, we can plot the mean number of steps taken during each 5 minute interval, grouped by weekend or weekday.
+```{r plotweekday, echo=TRUE}
+g <- ggplot(new_activity[, list(mean=mean(steps)), by=list(day, interval)], aes(x=interval, y=mean)) +
+  geom_line() + facet_wrap(~day) + 
+  labs(x = "5 minute interval of day", y = "Mean steps taken")
+
+print(g, type='html')
+```
